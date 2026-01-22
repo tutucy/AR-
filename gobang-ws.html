@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>局域网五子棋 - WebSocket版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        .status {
+            text-align: center;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.waiting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .connection-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            border-color: #667eea;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #667eea;
+            color: white;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        .game-area {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .player-info {
+            padding: 10px 20px;
+            border-radius: 8px;
+            background: #f0f0f0;
+        }
+        .player-info.active {
+            background: #667eea;
+            color: white;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            gap: 0;
+            background: #dcb35c;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        .cell {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #8b6914;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .cell:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        .cell::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #8b6914;
+            top: 50%;
+            left: 0;
+        }
+        .cell::after {
+            content: '';
+            position: absolute;
+            height: 100%;
+            width: 1px;
+            background: #8b6914;
+            left: 50%;
+            top: 0;
+        }
+        .stone {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            z-index: 1;
+            box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .stone.black {
+            background: radial-gradient(circle at 30% 30%, #555, #000);
+        }
+        .stone.white {
+            background: radial-gradient(circle at 30% 30%, #fff, #ccc);
+        }
+        .winner-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .winner-modal {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            animation: popIn 0.3s ease;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .winner-modal h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        .copy-btn {
+            font-size: 12px;
+            padding: 5px 10px;
+            margin-left: 5px;
+        }
+        .server-info {
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+            margin-top: 10px;
+        }
+        .debug-info {
+            font-size: 11px;
+            color: #999;
+            text-align: center;
+            margin-top: 5px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 局域网五子棋</h1>
+        
+        <div class="status" id="status">等待连接...</div>
+        
+        <div class="connection-panel" id="connectionPanel">
+            <div>
+                <label>服务器地址：</label>
+                <input type="text" id="serverUrl" placeholder="ws://192.168.1.100:8080" value="ws://localhost:8080">
+            </div>
+            <div>
+                <label>房间号：</label>
+                <input type="text" id="roomId" placeholder="输入房间号（任意字符）" value="room1">
+            </div>
+            <div class="input-group">
+                <button onclick="joinRoom()" id="joinBtn">加入房间</button>
+                <button class="secondary" onclick="copyRoomId()">复制房间号</button>
+            </div>
+            <div class="server-info">提示：局域网内其他电脑请将 localhost 改为服务器 IP</div>
+            <div class="debug-info" id="debugInfo"></div>
+        </div>
+        
+        <div class="game-area" id="gameArea">
+            <div class="game-info">
+                <div class="player-info" id="player1">⚫ 黑棋</div>
+                <div class="player-info" id="player2">⚪ 白棋</div>
+            </div>
+            <div class="board" id="board"></div>
+            <div style="margin-top: 20px;">
+                <button class="secondary" onclick="restartGame()">重新开始</button>
+                <button class="secondary" onclick="disconnect()">退出房间</button>
+            </div>
+            <div class="debug-info" id="gameDebugInfo"></div>
+        </div>
+    </div>
+    
+    <div class="winner-overlay" id="winnerOverlay">
+        <div class="winner-modal">
+            <h2 id="winnerText">🎉 黑棋获胜！</h2>
+            <button onclick="restartGame()">再来一局</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let myColor = null;
+        let currentTurn = 'black';
+        let board = [];
+        let gameActive = false;
+        let currentRoomId = '';
+        let myClientId = '';
+        let heartbeatInterval = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT = 3;
+
+        const BOARD_SIZE = 15;
+        const WIN_COUNT = 5;
+
+        function updateDebugInfo(info) {
+            document.getElementById('debugInfo').textContent = info;
+        }
+
+        function updateGameDebugInfo(info) {
+            document.getElementById('gameDebugInfo').textContent = info;
+        }
+
+        function init() {
+            initBoard();
+        }
+
+        function startHeartbeat() {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'ping' }));
+                    updateDebugInfo('心跳发送: ' + new Date().toLocaleTimeString());
+                }
+            }, 30000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        function joinRoom() {
+            const serverUrl = document.getElementById('serverUrl').value.trim();
+            const roomId = document.getElementById('roomId').value.trim();
+            if (!serverUrl) {
+                alert('请输入服务器地址');
+                return;
+            }
+            if (!roomId) {
+                alert('请输入房间号');
+                return;
+            }
+            
+            currentRoomId = roomId;
+            const statusEl = document.getElementById('status');
+            const joinBtn = document.getElementById('joinBtn');
+            statusEl.textContent = '正在连接服务器...';
+            statusEl.className = 'status waiting';
+            joinBtn.disabled = true;
+            
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = () => {
+                    console.log('WebSocket 连接成功');
+                    updateDebugInfo('已连接服务器');
+                    reconnectAttempts = 0;
+                    ws.send(JSON.stringify({ type: 'join', roomId }));
+                    startHeartbeat();
+                };
+                
+                ws.onmessage = (event) => {
+                    console.log('收到原始消息:', event.data);
+                    const data = JSON.parse(event.data);
+                    console.log('解析后的消息:', data);
+                    console.log('消息类型:', data.type);
+                    updateDebugInfo('收到: ' + data.type);
+                    
+                    if (data.type === 'joined') {
+                        myClientId = data.clientId;
+                        myColor = data.role === 'host' ? 'black' : 'white';
+                        statusEl.textContent = data.role === 'host' ? '已加入房间，等待对方...' : '已加入房间，游戏开始！';
+                        statusEl.className = 'status waiting';
+                        updateDebugInfo('角色: ' + data.role + ', ID: ' + data.clientId);
+                        
+                        if (data.role === 'guest') {
+                            startGame();
+                        }
+                    } else if (data.type === 'guest_joined') {
+                        statusEl.textContent = '对方已加入，游戏开始！';
+                        statusEl.className = 'status connected';
+                        startGame();
+                    } else if (data.type === 'game_data') {
+                        console.log('收到 game_data，调用 handleGameData');
+                        handleGameData(data);
+                    } else if (data.type === 'opponent_left') {
+                        alert('对方已离开');
+                        location.reload();
+                    } else if (data.type === 'error') {
+                        statusEl.textContent = data.message;
+                        statusEl.className = 'status error';
+                        joinBtn.disabled = false;
+                    } else if (data.type === 'pong') {
+                        updateDebugInfo('心跳响应: ' + new Date().toLocaleTimeString());
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket 错误:', error);
+                    statusEl.textContent = '连接失败，请确保服务器已启动';
+                    statusEl.className = 'status error';
+                    updateDebugInfo('连接错误');
+                    joinBtn.disabled = false;
+                    stopHeartbeat();
+                };
+                
+                ws.onclose = () => {
+                    console.log('WebSocket 连接关闭');
+                    stopHeartbeat();
+                    if (gameActive) {
+                        alert('连接已断开');
+                        location.reload();
+                    } else {
+                        statusEl.textContent = '连接已断开';
+                        statusEl.className = 'status error';
+                        joinBtn.disabled = false;
+                    }
+                };
+            } catch (error) {
+                console.error('连接错误:', error);
+                statusEl.textContent = '连接失败: ' + error.message;
+                statusEl.className = 'status error';
+                joinBtn.disabled = false;
+            }
+        }
+
+        function startGame() {
+            console.log('开始游戏, myColor:', myColor);
+            currentTurn = 'black';
+            document.getElementById('connectionPanel').style.display = 'none';
+            document.getElementById('gameArea').style.display = 'flex';
+            gameActive = true;
+            updateTurnIndicator();
+            updateGameDebugInfo('我的颜色: ' + myColor + ', 当前回合: ' + currentTurn);
+        }
+
+        function handleGameData(data) {
+            console.log('处理游戏数据:', data);
+            const gameData = data.data;
+            console.log('游戏数据内容:', gameData);
+            
+            if (gameData.type === 'move') {
+                console.log('准备落子:', gameData.row, gameData.col, gameData.color);
+                placeStone(gameData.row, gameData.col, gameData.color);
+                console.log('落子完成');
+                currentTurn = gameData.color === 'black' ? 'white' : 'black';
+                updateTurnIndicator();
+                updateGameDebugInfo('我的颜色: ' + myColor + ', 当前回合: ' + currentTurn);
+                
+                if (checkWin(gameData.row, gameData.col, gameData.color)) {
+                    showWinner(gameData.color);
+                    gameActive = false;
+                }
+            } else if (gameData.type === 'restart') {
+                resetBoard();
+            }
+        }
+
+        function sendGameData(data) {
+            console.log('发送游戏数据:', data);
+            updateGameDebugInfo('发送: ' + data.type);
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = JSON.stringify({ type: 'game_data', roomId: currentRoomId, data });
+                ws.send(message);
+                console.log('数据已发送:', message);
+            } else {
+                console.error('WebSocket 未连接');
+                alert('连接已断开，请刷新页面重新连接');
+            }
+        }
+
+        function initBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    cell.onclick = () => handleClick(i, j);
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function handleClick(row, col) {
+            console.log('点击棋子:', row, col, 'gameActive:', gameActive, 'myColor:', myColor, 'currentTurn:', currentTurn);
+            if (!gameActive || board[row][col] || currentTurn !== myColor) {
+                console.log('不能下棋原因:', !gameActive ? '游戏未开始' : board[row][col] ? '位置已有棋子' : '不是你的回合');
+                return;
+            }
+            
+            placeStone(row, col, myColor);
+            sendGameData({ type: 'move', row, col, color: myColor });
+            
+            if (checkWin(row, col, myColor)) {
+                showWinner(myColor);
+                gameActive = false;
+                return;
+            }
+            
+            currentTurn = myColor === 'black' ? 'white' : 'black';
+            updateTurnIndicator();
+            updateGameDebugInfo('我的颜色: ' + myColor + ', 当前回合: ' + currentTurn);
+        }
+
+        function placeStone(row, col, color) {
+            board[row][col] = color;
+            const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+            const stone = document.createElement('div');
+            stone.className = `stone ${color}`;
+            cell.appendChild(stone);
+        }
+
+        function checkWin(row, col, color) {
+            const directions = [
+                [[0, 1], [0, -1]],
+                [[1, 0], [-1, 0]],
+                [[1, 1], [-1, -1]],
+                [[1, -1], [-1, 1]]
+            ];
+            
+            for (const [dir1, dir2] of directions) {
+                let count = 1;
+                
+                for (const [dr, dc] of [dir1, dir2]) {
+                    let r = row + dr;
+                    let c = col + dc;
+                    while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === color) {
+                        count++;
+                        r += dr;
+                        c += dc;
+                    }
+                }
+                
+                if (count >= WIN_COUNT) return true;
+            }
+            return false;
+        }
+
+        function showWinner(color) {
+            const text = color === 'black' ? '🎉 黑棋获胜！' : '🎉 白棋获胜！';
+            document.getElementById('winnerText').textContent = text;
+            document.getElementById('winnerOverlay').style.display = 'flex';
+        }
+
+        function updateTurnIndicator() {
+            const player1 = document.getElementById('player1');
+            const player2 = document.getElementById('player2');
+            
+            if (currentTurn === 'black') {
+                player1.classList.add('active');
+                player2.classList.remove('active');
+            } else {
+                player1.classList.remove('active');
+                player2.classList.add('active');
+            }
+        }
+
+        function restartGame() {
+            document.getElementById('winnerOverlay').style.display = 'none';
+            resetBoard();
+            sendGameData({ type: 'restart' });
+        }
+
+        function resetBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                const stone = cell.querySelector('.stone');
+                if (stone) stone.remove();
+            });
+            currentTurn = 'black';
+            gameActive = true;
+            updateTurnIndicator();
+            updateGameDebugInfo('我的颜色: ' + myColor + ', 当前回合: ' + currentTurn);
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.send(JSON.stringify({ type: 'leave', roomId: currentRoomId }));
+                ws.close();
+            }
+            stopHeartbeat();
+            location.reload();
+        }
+
+        function copyRoomId() {
+            const roomId = document.getElementById('roomId').value;
+            navigator.clipboard.writeText(roomId).then(() => {
+                alert('房间号已复制');
+            });
+        }
+
+        window.addEventListener('beforeunload', () => {
+            stopHeartbeat();
+        });
+
+        init();
+    </script>
+</body>
+</html>

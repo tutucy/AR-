@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>局域网五子棋</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 28px;
+        }
+        .status {
+            text-align: center;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 16px;
+            color: #555;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.waiting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .connection-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            border-color: #667eea;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #667eea;
+            color: white;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        .game-area {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+        }
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .player-info {
+            padding: 10px 20px;
+            border-radius: 8px;
+            background: #f0f0f0;
+        }
+        .player-info.active {
+            background: #667eea;
+            color: white;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            gap: 0;
+            background: #dcb35c;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        .cell {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #8b6914;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .cell:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        .cell::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #8b6914;
+            top: 50%;
+            left: 0;
+        }
+        .cell::after {
+            content: '';
+            position: absolute;
+            height: 100%;
+            width: 1px;
+            background: #8b6914;
+            left: 50%;
+            top: 0;
+        }
+        .stone {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            z-index: 1;
+            box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .stone.black {
+            background: radial-gradient(circle at 30% 30%, #555, #000);
+        }
+        .stone.white {
+            background: radial-gradient(circle at 30% 30%, #fff, #ccc);
+        }
+        .winner-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .winner-modal {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            animation: popIn 0.3s ease;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .winner-modal h2 {
+            font-size: 32px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+        .copy-btn {
+            font-size: 12px;
+            padding: 5px 10px;
+            margin-left: 5px;
+        }
+        .loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .error {
+            background: #f8d7da !important;
+            color: #721c24 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 局域网五子棋</h1>
+        
+        <div class="status" id="status">等待连接...</div>
+        
+        <div class="connection-panel" id="connectionPanel">
+            <div>
+                <label>我的房间号：</label>
+                <span id="myId" style="font-weight: bold; color: #667eea;">生成中...</span>
+                <button class="copy-btn" onclick="copyId()">复制</button>
+            </div>
+            <div class="input-group">
+                <input type="text" id="peerId" placeholder="输入对方房间号">
+                <button onclick="connectToPeer()">连接</button>
+            </div>
+        </div>
+        
+        <div class="game-area" id="gameArea">
+            <div class="game-info">
+                <div class="player-info" id="player1">⚫ 黑棋</div>
+                <div class="player-info" id="player2">⚪ 白棋</div>
+            </div>
+            <div class="board" id="board"></div>
+            <div style="margin-top: 20px;">
+                <button class="secondary" onclick="restartGame()">重新开始</button>
+                <button class="secondary" onclick="disconnect()">断开连接</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="winner-overlay" id="winnerOverlay">
+        <div class="winner-modal">
+            <h2 id="winnerText">🎉 黑棋获胜！</h2>
+            <button onclick="restartGame()">再来一局</button>
+        </div>
+    </div>
+
+    <script>
+        let peer = null;
+        let conn = null;
+        let myColor = null;
+        let currentTurn = 'black';
+        let board = [];
+        let gameActive = false;
+        let isHost = false;
+        let connectRetryCount = 0;
+        const MAX_RETRY = 3;
+
+        const BOARD_SIZE = 15;
+        const WIN_COUNT = 5;
+
+        function init() {
+            console.log('正在初始化 PeerJS...');
+            peer = new Peer(null, {
+                debug: 2,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' }
+                    ]
+                }
+            });
+            
+            peer.on('open', (id) => {
+                console.log('Peer ID 已生成:', id);
+                document.getElementById('myId').textContent = id;
+                document.getElementById('status').textContent = '等待对方连接...';
+                document.getElementById('status').className = 'status waiting';
+            });
+            
+            peer.on('connection', (connection) => {
+                console.log('收到连接请求');
+                conn = connection;
+                isHost = true;
+                myColor = 'black';
+                setupConnection();
+            });
+            
+            peer.on('error', (err) => {
+                console.error('PeerJS 错误:', err);
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = '连接错误: ' + err.type + ' - ' + err.message;
+                statusEl.className = 'status error';
+                
+                if (err.type === 'peer-unavailable') {
+                    statusEl.textContent = '找不到对方，请检查房间号是否正确';
+                } else if (err.type === 'network') {
+                    statusEl.textContent = '网络错误，请检查网络连接';
+                } else if (err.type === 'disconnected') {
+                    statusEl.textContent = '与信令服务器断开，正在重连...';
+                } else if (err.type === 'ssl-unavailable') {
+                    statusEl.textContent = 'SSL 不可用，请使用 HTTPS';
+                }
+            });
+            
+            peer.on('disconnected', () => {
+                console.log('与信令服务器断开连接');
+                document.getElementById('status').textContent = '与信令服务器断开，正在重连...';
+                setTimeout(() => {
+                    if (peer && !peer.destroyed) {
+                        peer.reconnect();
+                    }
+                }, 3000);
+            });
+            
+            initBoard();
+        }
+
+        function connectToPeer() {
+            const peerId = document.getElementById('peerId').value.trim();
+            if (!peerId) {
+                alert('请输入房间号');
+                return;
+            }
+            
+            if (peerId === document.getElementById('myId').textContent) {
+                alert('不能连接自己的房间号');
+                return;
+            }
+            
+            console.log('正在连接到:', peerId);
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = '正在连接对方...';
+            statusEl.className = 'status waiting';
+            
+            const connection = peer.connect(peerId, {
+                reliable: true,
+                serialization: 'json',
+                metadata: { timestamp: Date.now() }
+            });
+            
+            let timeoutId = setTimeout(() => {
+                if (!conn || conn !== connection) {
+                    console.log('连接超时');
+                    connection.close();
+                    
+                    if (connectRetryCount < MAX_RETRY) {
+                        connectRetryCount++;
+                        console.log(`自动重试 ${connectRetryCount}/${MAX_RETRY}...`);
+                        statusEl.textContent = `连接超时，自动重试 ${connectRetryCount}/${MAX_RETRY}...`;
+                        setTimeout(() => connectToPeer(), 1000);
+                    } else {
+                        statusEl.textContent = '连接超时，请检查网络或重试';
+                        statusEl.className = 'status error';
+                        connectRetryCount = 0;
+                    }
+                }
+            }, 5000);
+            
+            connection.on('open', () => {
+                clearTimeout(timeoutId);
+                connectRetryCount = 0;
+                console.log('连接成功');
+                conn = connection;
+                isHost = false;
+                myColor = 'white';
+                setupConnection();
+            });
+            
+            connection.on('error', (err) => {
+                clearTimeout(timeoutId);
+                console.error('连接错误:', err);
+                statusEl.textContent = '连接失败: ' + (err.type === 'peer-unavailable' ? '对方不在线或房间号错误' : err.type);
+                statusEl.className = 'status error';
+                connectRetryCount = 0;
+            });
+            
+            connection.on('close', () => {
+                clearTimeout(timeoutId);
+                console.log('连接已关闭');
+                if (!conn || conn === connection) {
+                    statusEl.textContent = '连接已断开';
+                    statusEl.className = 'status error';
+                }
+            });
+        }
+
+        function setupConnection() {
+            console.log('设置连接处理程序');
+            
+            conn.on('open', () => {
+                console.log('数据通道已打开');
+                document.getElementById('status').textContent = '已连接！游戏开始';
+                document.getElementById('status').className = 'status connected';
+                document.getElementById('connectionPanel').style.display = 'none';
+                document.getElementById('gameArea').style.display = 'flex';
+                gameActive = true;
+                updateTurnIndicator();
+            });
+            
+            conn.on('data', (data) => {
+                console.log('收到数据:', data);
+                if (data.type === 'move') {
+                    placeStone(data.row, data.col, data.color);
+                    currentTurn = data.color === 'black' ? 'white' : 'black';
+                    updateTurnIndicator();
+                } else if (data.type === 'restart') {
+                    resetBoard();
+                } else if (data.type === 'disconnect') {
+                    alert('对方已断开连接');
+                    location.reload();
+                }
+            });
+            
+            conn.on('error', (err) => {
+                console.error('连接错误:', err);
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = '连接错误: ' + err.type;
+                statusEl.className = 'status error';
+            });
+            
+            conn.on('close', () => {
+                console.log('连接已关闭');
+                const statusEl = document.getElementById('status');
+                statusEl.textContent = '连接已断开';
+                statusEl.className = 'status error';
+            });
+        }
+
+        function initBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            
+            for (let i = 0; i < BOARD_SIZE; i++) {
+                for (let j = 0; j < BOARD_SIZE; j++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = i;
+                    cell.dataset.col = j;
+                    cell.onclick = () => handleClick(i, j);
+                    boardEl.appendChild(cell);
+                }
+            }
+        }
+
+        function handleClick(row, col) {
+            if (!gameActive || board[row][col] || currentTurn !== myColor) return;
+            
+            placeStone(row, col, myColor);
+            conn.send({ type: 'move', row, col, color: myColor });
+            
+            if (checkWin(row, col, myColor)) {
+                showWinner(myColor);
+                gameActive = false;
+                return;
+            }
+            
+            currentTurn = myColor === 'black' ? 'white' : 'black';
+            updateTurnIndicator();
+        }
+
+        function placeStone(row, col, color) {
+            board[row][col] = color;
+            const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${col}"]`);
+            const stone = document.createElement('div');
+            stone.className = `stone ${color}`;
+            cell.appendChild(stone);
+        }
+
+        function checkWin(row, col, color) {
+            const directions = [
+                [[0, 1], [0, -1]],
+                [[1, 0], [-1, 0]],
+                [[1, 1], [-1, -1]],
+                [[1, -1], [-1, 1]]
+            ];
+            
+            for (const [dir1, dir2] of directions) {
+                let count = 1;
+                
+                for (const [dr, dc] of [dir1, dir2]) {
+                    let r = row + dr;
+                    let c = col + dc;
+                    while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === color) {
+                        count++;
+                        r += dr;
+                        c += dc;
+                    }
+                }
+                
+                if (count >= WIN_COUNT) return true;
+            }
+            return false;
+        }
+
+        function showWinner(color) {
+            const text = color === 'black' ? '🎉 黑棋获胜！' : '🎉 白棋获胜！';
+            document.getElementById('winnerText').textContent = text;
+            document.getElementById('winnerOverlay').style.display = 'flex';
+        }
+
+        function updateTurnIndicator() {
+            const player1 = document.getElementById('player1');
+            const player2 = document.getElementById('player2');
+            
+            if (currentTurn === 'black') {
+                player1.classList.add('active');
+                player2.classList.remove('active');
+            } else {
+                player1.classList.remove('active');
+                player2.classList.add('active');
+            }
+        }
+
+        function restartGame() {
+            document.getElementById('winnerOverlay').style.display = 'none';
+            resetBoard();
+            conn.send({ type: 'restart' });
+        }
+
+        function resetBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            const cells = document.querySelectorAll('.cell');
+            cells.forEach(cell => {
+                const stone = cell.querySelector('.stone');
+                if (stone) stone.remove();
+            });
+            currentTurn = 'black';
+            gameActive = true;
+            updateTurnIndicator();
+        }
+
+        function disconnect() {
+            if (conn) {
+                conn.send({ type: 'disconnect' });
+                conn.close();
+            }
+            if (peer) {
+                peer.destroy();
+            }
+            location.reload();
+        }
+
+        function copyId() {
+            const id = document.getElementById('myId').textContent;
+            navigator.clipboard.writeText(id).then(() => {
+                alert('房间号已复制');
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>

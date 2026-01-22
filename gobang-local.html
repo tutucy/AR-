@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋 - 本地测试版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .player-panel {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 20px;
+        }
+        .status {
+            text-align: center;
+            padding: 10px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .status.active {
+            background: #d4edda;
+            color: #155724;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            gap: 0;
+            background: #dcb35c;
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        .cell {
+            width: 28px;
+            height: 28px;
+            border: 1px solid #8b6914;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            position: relative;
+        }
+        .cell:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        .cell::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background: #8b6914;
+            top: 50%;
+            left: 0;
+        }
+        .cell::after {
+            content: '';
+            position: absolute;
+            height: 100%;
+            width: 1px;
+            background: #8b6914;
+            left: 50%;
+            top: 0;
+        }
+        .stone {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            z-index: 1;
+            box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .stone.black {
+            background: radial-gradient(circle at 30% 30%, #555, #000);
+        }
+        .stone.white {
+            background: radial-gradient(circle at 30% 30%, #fff, #ccc);
+        }
+        .controls {
+            margin-top: 15px;
+            text-align: center;
+        }
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            background: #667eea;
+            color: white;
+            margin: 0 5px;
+        }
+        button:hover {
+            background: #5568d3;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        button.secondary:hover {
+            background: #5a6268;
+        }
+        .winner-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .winner-modal {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+        }
+        .winner-modal h2 {
+            font-size: 28px;
+            margin-bottom: 20px;
+            color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="player-panel">
+            <h2>⚫ 黑棋</h2>
+            <div class="status" id="status1">等待开始</div>
+            <div class="board" id="board1"></div>
+            <div class="controls">
+                <button onclick="restartGame()">重新开始</button>
+            </div>
+        </div>
+        
+        <div class="player-panel">
+            <h2>⚪ 白棋</h2>
+            <div class="status" id="status2">等待开始</div>
+            <div class="board" id="board2"></div>
+            <div class="controls">
+                <button onclick="restartGame()">重新开始</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="winner-overlay" id="winnerOverlay">
+        <div class="winner-modal">
+            <h2 id="winnerText">🎉 黑棋获胜！</h2>
+            <button onclick="restartGame()">再来一局</button>
+        </div>
+    </div>
+
+    <script>
+        let currentTurn = 'black';
+        let board = [];
+        let gameActive = true;
+
+        const BOARD_SIZE = 15;
+        const WIN_COUNT = 5;
+
+        function init() {
+            initBoards();
+            resetBoard();
+        }
+
+        function initBoards() {
+            for (let i = 1; i <= 2; i++) {
+                const boardEl = document.getElementById(`board${i}`);
+                boardEl.innerHTML = '';
+                
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        cell.dataset.row = row;
+                        cell.dataset.col = col;
+                        cell.dataset.board = i;
+                        cell.onclick = () => handleClick(row, col, i);
+                        boardEl.appendChild(cell);
+                    }
+                }
+            }
+        }
+
+        function handleClick(row, col, boardNum) {
+            const playerColor = boardNum === 1 ? 'black' : 'white';
+            
+            console.log(`棋盘${boardNum}点击: (${row}, ${col}), 玩家: ${playerColor}, 当前回合: ${currentTurn}`);
+            
+            if (!gameActive) {
+                console.log('游戏已结束');
+                return;
+            }
+            
+            if (board[row][col]) {
+                console.log('位置已有棋子');
+                return;
+            }
+            
+            if (currentTurn !== playerColor) {
+                console.log('不是你的回合');
+                return;
+            }
+            
+            placeStone(row, col, playerColor);
+            
+            if (checkWin(row, col, playerColor)) {
+                showWinner(playerColor);
+                gameActive = false;
+                return;
+            }
+            
+            currentTurn = currentTurn === 'black' ? 'white' : 'black';
+            updateStatus();
+        }
+
+        function placeStone(row, col, color) {
+            board[row][col] = color;
+            
+            for (let i = 1; i <= 2; i++) {
+                const cell = document.querySelector(`#board${i} .cell[data-row="${row}"][data-col="${col}"]`);
+                const stone = document.createElement('div');
+                stone.className = `stone ${color}`;
+                cell.appendChild(stone);
+            }
+        }
+
+        function checkWin(row, col, color) {
+            const directions = [
+                [[0, 1], [0, -1]],
+                [[1, 0], [-1, 0]],
+                [[1, 1], [-1, -1]],
+                [[1, -1], [-1, 1]]
+            ];
+            
+            for (const [dir1, dir2] of directions) {
+                let count = 1;
+                
+                for (const [dr, dc] of [dir1, dir2]) {
+                    let r = row + dr;
+                    let c = col + dc;
+                    while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === color) {
+                        count++;
+                        r += dr;
+                        c += dc;
+                    }
+                }
+                
+                if (count >= WIN_COUNT) return true;
+            }
+            return false;
+        }
+
+        function showWinner(color) {
+            const text = color === 'black' ? '🎉 黑棋获胜！' : '🎉 白棋获胜！';
+            document.getElementById('winnerText').textContent = text;
+            document.getElementById('winnerOverlay').style.display = 'flex';
+        }
+
+        function updateStatus() {
+            const status1 = document.getElementById('status1');
+            const status2 = document.getElementById('status2');
+            
+            if (currentTurn === 'black') {
+                status1.textContent = '你的回合';
+                status1.className = 'status active';
+                status2.textContent = '等待对方';
+                status2.className = 'status';
+            } else {
+                status1.textContent = '等待对方';
+                status1.className = 'status';
+                status2.textContent = '你的回合';
+                status2.className = 'status active';
+            }
+        }
+
+        function restartGame() {
+            document.getElementById('winnerOverlay').style.display = 'none';
+            resetBoard();
+        }
+
+        function resetBoard() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
+            
+            for (let i = 1; i <= 2; i++) {
+                const cells = document.querySelectorAll(`#board${i} .cell`);
+                cells.forEach(cell => {
+                    const stone = cell.querySelector('.stone');
+                    if (stone) stone.remove();
+                });
+            }
+            
+            currentTurn = 'black';
+            gameActive = true;
+            updateStatus();
+        }
+
+        init();
+    </script>
+</body>
+</html>
